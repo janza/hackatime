@@ -183,11 +183,12 @@ func (a *app) serveWs(w http.ResponseWriter, r *http.Request) {
 	c := &client{
 		hub:  a.hub,
 		conn: conn,
-		send: make(chan []byte),
+		send: make(chan []byte, 256),
 	}
 	a.hub.register <- c
 	ticker := time.NewTicker(50 * time.Second)
 	defer func() {
+		log.Println("sending unregister client")
 		ticker.Stop()
 		a.hub.unregister <- c
 		conn.Close()
@@ -197,7 +198,7 @@ func (a *app) serveWs(w http.ResponseWriter, r *http.Request) {
 		req := readRequest{}
 		n := time.Now()
 		req.Max = n
-		req.Min = n.Add(time.Hour * -1)
+		req.Min = n.Add(time.Hour * -24)
 		a.getMessages(req, func(m []byte) {
 			a.hub.broadcast <- m
 		})
@@ -219,9 +220,7 @@ func (a *app) serveWs(w http.ResponseWriter, r *http.Request) {
 				log.Printf("err on next writer: %s", err)
 				return
 			}
-			log.Println("writing message")
 			w.Write(message)
-			log.Println("closing writer")
 			if err := w.Close(); err != nil {
 				log.Printf("err on close: %s", err)
 				return
@@ -279,6 +278,7 @@ func (h *hub) run() {
 			h.clients[client] = true
 		case client := <-h.unregister:
 			if _, ok := h.clients[client]; ok {
+				log.Println("unregistering client")
 				delete(h.clients, client)
 				close(client.send)
 			}
